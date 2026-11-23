@@ -15,7 +15,7 @@ custom_domain = true
 binding = "DB"
 database_name = "minato"
 # `wrangler d1 create minato` で作ったら、その id に差し替える
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "1b0f8f8c-f258-4be6-b70c-da6d347dedb9"
 migrations_dir = "migrations"
 
 # 1時間ごとに集める（src/index.ts の scheduled）。JST 0〜2時台は前日分も
