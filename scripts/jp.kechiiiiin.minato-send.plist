@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  港へ1時間ごとに送る launchd の雛形（README の「Mac 側」）。
+  __NODE__ を node の絶対パス（`nodenv which node` など）に、__REPO__ をこのリポジトリの絶対パスに、
+  __HOME__ をホームの絶対パスに置き換えて ~/Library/LaunchAgents/ に置く。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>jp.kechiiiiin.minato-send</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__REPO__/scripts/send-to-minato.mjs</string>
+  </array>
+  <!-- 毎時 10 分（港の cron は毎時 5 分） -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Minute</key>
+    <integer>10</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/minato-send.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/minato-send.log</string>
+</dict>
+</plist>

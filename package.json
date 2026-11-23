@@ -1,0 +1,22 @@
+{
+  "name": "minato",
+  "version": "0.1.0",
+  "description": "港（minato）: いろいろな出どころから「その日の材料」を1時間ごとに集めて貯める Worker＋D1（画面なし）",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler d1 migrations apply minato --local && wrangler dev --local --ip 127.0.0.1 --port 8793 --local-upstream 127.0.0.1:8793 --define __LOCAL_DEV__:true",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts test/*.test.mjs",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "hono": "^4.13.8"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260922.1",
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2",
+    "wrangler": "4.131.2"
+  }
+}
