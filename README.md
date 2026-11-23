@@ -7,7 +7,7 @@
 src/            Worker（Hono・TypeScript）
   sources/      出どころごとのモジュール（便り・NoBu・からだ帳・Hevy・天気）
 migrations/     D1 マイグレーション
-scripts/        Mac から送る send-to-minato.mjs と launchd の雛形
+scripts/        Access の一回きりの設定 setup-access.sh・Mac から送る send-to-minato.mjs と launchd の雛形
 test/           node --test（D1 は node:sqlite のシム）
 ```
 
@@ -60,9 +60,9 @@ test/           node --test（D1 は node:sqlite のシム）
 | `CF_ACCESS_AUD` | secret | Access アプリ `minato` の AUD |
 | `ACCESS_SERVICE_CLIENT_IDS` | secret | 港を呼べるサービストークンの Client ID（カンマ区切り）。かけら帳と Mac は `kakera-ios` |
 | `TAYORI_URL` | vars | `https://tayori.kechiiiiin.com`（`wrangler.toml`） |
-| `TAYORI_CLIENT_ID`／`TAYORI_CLIENT_SECRET` | secret | `kakera-ios`（キーチェーン `kakera-token`。便りは既に通している） |
+| `TAYORI_CLIENT_ID`／`TAYORI_CLIENT_SECRET` | secret | `kakera-ios`（キーチェーン `kakera-token`。便りのポリシーと allowlist には `scripts/setup-access.sh` が足す） |
 | `NOBU_URL` | vars | `https://nobu.kechiiiiin.com` |
-| `NOBU_CLIENT_ID`／`NOBU_CLIENT_SECRET` | secret | NoBu の `ACCESS_SERVICE_CLIENT_IDS` に載っていて、Access アプリ `nobu` の Service Auth ポリシーが通すトークン |
+| `NOBU_CLIENT_ID`／`NOBU_CLIENT_SECRET` | secret | `kakera-ios`（NoBu のポリシーと allowlist には `scripts/setup-access.sh` が足す） |
 | `HEALTH_URL` | vars | `https://health.kechiiiiin.com` |
 | `HEALTH_CLIENT_ID`／`HEALTH_CLIENT_SECRET` | secret | health-sync のヘスティア役のトークン（キーチェーン `health-sync-hestia-token`）。health-sync-cloud は `INGEST_CLIENT_ID`／`HESTIA_CLIENT_ID` の2本しか通さず、`/v1/app/day` はヘスティア役だけ |
 | `WEATHER_LATITUDE`／`WEATHER_LONGITUDE` | secret | 天気を引く場所（小数の度） |
@@ -72,16 +72,19 @@ test/           node --test（D1 は node:sqlite のシム）
 
 ## 本番に出す
 
-【Keisuke・ブラウザ】は無し（トークンは既存のものを使う。Hevy の鍵を使うときだけ Hevy の画面で1回発行）。
+【Keisuke・ターミナル】は1回（`scripts/setup-access.sh`。自動モードではキーチェーンと Access の変更が止まるため）。【Keisuke・ブラウザ】は無し（Hevy の鍵を使うときだけ Hevy の画面で1回発行）。
 
-【ヘスティア・コマンド】
+1. 【ヘスティア・コマンド】`wrangler d1 create minato` → `wrangler.toml` の `database_id` を差し替え → `wrangler d1 migrations apply minato --remote` → `wrangler deploy`（Custom Domain `minato.kechiiiiin.com` は deploy で DNS ごとできる。secret が入るまでは全部 401 で閉じている）
+2. 【Keisuke・ターミナル・1回】`bash scripts/setup-access.sh`
+   - サービストークン `kakera-ios` を用意（キーチェーン `kakera-token` に `client-id`／`client-secret` が揃っていれば回し直さない）
+   - Access アプリ（かけら帳・便り・NoBu）のポリシーに `kakera-ios` を**足す**（既存の許可は消さない。便り・NoBu は既存トークンの Service Auth ポリシーに足し、かけら帳は Google ログインのポリシーとは別に Service Auth のポリシーを足す）
+   - Access アプリ `minato`（Self-hosted）を無ければ作り、Service Auth で `kakera-ios` だけ通す
+   - Worker secret: かけら帳・便り・NoBu の `ACCESS_SERVICE_CLIENT_IDS`（便り・NoBu は Access が通すトークン全部＝既存＋`kakera-ios`）、港の `CF_ACCESS_AUD`・`ACCESS_SERVICE_CLIENT_IDS`・`TAYORI_*`・`NOBU_*`（`kakera-ios`）・`HEALTH_*`（キーチェーン `health-sync-hestia-token`）・`WEATHER_*`（キーチェーン `minato-weather` の `latitude`／`longitude` があれば）
+   - 何度流しても同じ結果。**港の Worker がまだ無いと港の secret だけ飛ばして案内を出す**ので、1. の deploy の後に流す（先に流してしまったら deploy の後にもう一度）
+3. 【ヘスティア・コマンド】確かめる: トークン無しで 403/302（Access）、トークン付きで `POST /api/collect` → 各出どころの `status`、`GET /api/materials?date=今日`
+4. 使うなら `HEVY_API_KEY` を `wrangler secret put`
 
-1. `wrangler d1 create minato` → `wrangler.toml` の `database_id` を差し替え → `wrangler d1 migrations apply minato --remote`
-2. Access アプリ `minato`（`minato.kechiiiiin.com`・self_hosted）を作り、Service Auth ポリシーで `kakera-ios` を通す（便りの `scripts/setup-access.sh` と同じ形）。AUD を控える
-3. `wrangler secret put` で上の secret を入れる（`CF_ACCESS_AUD`・`ACCESS_SERVICE_CLIENT_IDS` は必須。出どころのものは使うものだけ）
-4. NoBu を集めるなら、NoBu 側で `kakera-ios` を通す（NoBu の `ACCESS_SERVICE_CLIENT_IDS` に足す＋Access アプリ `nobu` のポリシーに足す）か、既に通っている `nobu-ios` のトークンを `NOBU_CLIENT_*` に入れる
-5. `wrangler deploy`（Custom Domain `minato.kechiiiiin.com` は deploy で DNS ごとできる）
-6. 確かめる: トークン無しで 403/302（Access）、トークン付きで `POST /api/collect` → 各出どころの `status`、`GET /api/materials?date=今日`
+⚠️ 便りの `scripts/setup-access.sh` をもう一度流すと、便りのポリシーと `ACCESS_SERVICE_CLIENT_IDS` が `tayori-app` だけに戻り、`kakera-ios` が外れる（かけら帳 iOS と港から便りが読めなくなる）。そのときはこのスクリプトをもう一度流す。
 
 ⚠️ 港から便り・NoBu・からだ帳へは、同じゾーンの Custom Domain を Worker の `fetch` で呼ぶ。Access の前を通るので、サービストークンが各 Access アプリのポリシーに入っていないと 302/403 で `error` になる（理由に出る）。
 
