@@ -195,9 +195,9 @@ NOBU_TID=$(token_field "$TOKS" "$NOBU_TOKEN" id)
 [ -n "$TAYORI_TID" ] || { echo "❌ サービストークン $TAYORI_TOKEN が見つからない" >&2; exit 1; }
 [ -n "$NOBU_TID" ] || { echo "❌ サービストークン $NOBU_TOKEN が見つからない" >&2; exit 1; }
 
-add_to_app "$KAKERA_APP" "" "かけら帳（$(app_field "$KAKERA_APP" name)・$KAKERA_HOST）"
-add_to_app "$TAYORI_APP" "$TAYORI_TID" "便り（$(app_field "$TAYORI_APP" name)・$TAYORI_HOST）"
-add_to_app "$NOBU_APP" "$NOBU_TID" "NoBu（$(app_field "$NOBU_APP" name)・$NOBU_HOST）"
+add_to_app "$KAKERA_APP" "" "かけら帳（$(app_field "$KAKERA_APP" name)・${KAKERA_HOST}）"
+add_to_app "$TAYORI_APP" "$TAYORI_TID" "便り（$(app_field "$TAYORI_APP" name)・${TAYORI_HOST}）"
+add_to_app "$NOBU_APP" "$NOBU_TID" "NoBu（$(app_field "$NOBU_APP" name)・${NOBU_HOST}）"
 
 # 3. minato のアプリ
 MINATO_APP=$(app_id_by_host "$MINATO_HOST")
@@ -206,12 +206,12 @@ if [ -z "$MINATO_APP" ]; then
   echo "$R" | ok
   MINATO_APP=$(echo "$R" | field id)
   MINATO_AUD=$(echo "$R" | field aud)
-  did "Access アプリ minato（$MINATO_HOST・Self-hosted）を作った"
+  did "Access アプリ minato（${MINATO_HOST}・Self-hosted）を作った"
 else
   MINATO_AUD=$(app_field "$MINATO_APP" aud)
-  skipped "Access アプリ $(app_field "$MINATO_APP" name)（$MINATO_HOST）は既にあるので作らない"
+  skipped "Access アプリ $(app_field "$MINATO_APP" name)（${MINATO_HOST}）は既にあるので作らない"
 fi
-add_to_app "$MINATO_APP" "" "港（minato・$MINATO_HOST）"
+add_to_app "$MINATO_APP" "" "港（minato・${MINATO_HOST}）"
 OTHERS=$(api "$B/apps/$MINATO_APP/policies?per_page=1000" | TID=$KID python3 -c 'import os,sys,json
 r=json.load(sys.stdin).get("result") or []
 print(", ".join(p.get("name","?") for p in r if not any(isinstance(x,dict) and x.get("service_token",{}).get("token_id")==os.environ["TID"] for x in (p.get("include") or []))))')
@@ -223,11 +223,11 @@ did "kakera-cho: ACCESS_SERVICE_CLIENT_IDS = $TOKEN_NAME"
 
 IDS=$(client_ids_for_app "$TAYORI_APP" "$TAYORI_TOKEN")
 printf '%s' "$IDS" | put_secret "$TAYORI_DIR" ACCESS_SERVICE_CLIENT_IDS
-did "tayori: ACCESS_SERVICE_CLIENT_IDS = $(echo "$IDS" | tr ',' '\n' | grep -c .) 本（$TAYORI_TOKEN・$TOKEN_NAME ほか、Access が通すトークン全部）"
+did "tayori: ACCESS_SERVICE_CLIENT_IDS = $(echo "$IDS" | tr ',' '\n' | grep -c .) 本（${TAYORI_TOKEN}・$TOKEN_NAME ほか、Access が通すトークン全部）"
 
 IDS=$(client_ids_for_app "$NOBU_APP" "$NOBU_TOKEN")
 printf '%s' "$IDS" | put_secret "$NOBU_DIR" ACCESS_SERVICE_CLIENT_IDS
-did "nobu: ACCESS_SERVICE_CLIENT_IDS = $(echo "$IDS" | tr ',' '\n' | grep -c .) 本（$NOBU_TOKEN・$TOKEN_NAME ほか、Access が通すトークン全部）"
+did "nobu: ACCESS_SERVICE_CLIENT_IDS = $(echo "$IDS" | tr ',' '\n' | grep -c .) 本（${NOBU_TOKEN}・$TOKEN_NAME ほか、Access が通すトークン全部）"
 
 MINATO_LIVE=$(curl -sS -H "Authorization: Bearer $DEPLOY" "https://api.cloudflare.com/client/v4/accounts/$ACC/workers/scripts" \
   | python3 -c 'import sys,json;d=json.load(sys.stdin);print("yes" if any(s.get("id")=="minato" for s in (d.get("result") or [])) else "no")')
@@ -240,12 +240,12 @@ else
   kc_value "$KC" client-secret | put_secret "$MINATO_DIR" TAYORI_CLIENT_SECRET
   printf '%s' "$KCID" | put_secret "$MINATO_DIR" NOBU_CLIENT_ID
   kc_value "$KC" client-secret | put_secret "$MINATO_DIR" NOBU_CLIENT_SECRET
-  did "minato: CF_ACCESS_AUD・ACCESS_SERVICE_CLIENT_IDS・TAYORI_CLIENT_ID/SECRET・NOBU_CLIENT_ID/SECRET（$TOKEN_NAME）"
+  did "minato: CF_ACCESS_AUD・ACCESS_SERVICE_CLIENT_IDS・TAYORI_CLIENT_ID/SECRET・NOBU_CLIENT_ID/SECRET（${TOKEN_NAME}）"
 
   if has_kc "$HEALTH_KC" client-id && has_kc "$HEALTH_KC" client-secret; then
     kc_value "$HEALTH_KC" client-id | put_secret "$MINATO_DIR" HEALTH_CLIENT_ID
     kc_value "$HEALTH_KC" client-secret | put_secret "$MINATO_DIR" HEALTH_CLIENT_SECRET
-    did "minato: HEALTH_CLIENT_ID/SECRET（キーチェーン $HEALTH_KC）"
+    did "minato: HEALTH_CLIENT_ID/SECRET（キーチェーン ${HEALTH_KC}）"
   else
     skipped "minato: キーチェーン $HEALTH_KC が無いので HEALTH_* は入れていない（~/work/health-sync-cloud/scripts/setup-hestia-access.sh で作る）"
   fi
@@ -253,7 +253,7 @@ else
   if has_kc "$WEATHER_KC" latitude && has_kc "$WEATHER_KC" longitude; then
     kc_value "$WEATHER_KC" latitude | put_secret "$MINATO_DIR" WEATHER_LATITUDE
     kc_value "$WEATHER_KC" longitude | put_secret "$MINATO_DIR" WEATHER_LONGITUDE
-    did "minato: WEATHER_LATITUDE/LONGITUDE（キーチェーン $WEATHER_KC）"
+    did "minato: WEATHER_LATITUDE/LONGITUDE（キーチェーン ${WEATHER_KC}）"
   else
     skipped "minato: 天気の座標が無いので WEATHER_* は入れていない。入れるなら次の2行を流してから、このスクリプトをもう一度:
       security add-generic-password -U -s $WEATHER_KC -a latitude -w     # 緯度（小数の度）をプロンプトで
