@@ -36,6 +36,7 @@ test/           node --test（D1 は node:sqlite のシム）
 | `weather` | その日の天気・最高／最低気温・降水量 | Open-Meteo（鍵不要。60 日より前は archive-api） | `WEATHER_LATITUDE`／`WEATHER_LONGITUDE`（座標はリポジトリに書かない・材料にも入れない） |
 | `vault-log` | jinsei vault の log の見出し（`## YYYY-MM-DD \| 種別 \| タイトル`）と本文の先頭 | Mac から `POST /api/ingest` | Mac のキーチェーン `kakera-token` |
 | `ambient` | Ambient Context のその日の要約（`~/ambient-context/Summaries/YYYY-MM-DD.md`） | Mac から `POST /api/ingest` | 同上 |
+| `rururu-paw` | rururu の「自分のチャンネルへの足あと」（pawprints to_me） | rururu CLI（`~/.local/bin/rururu`）を Mac から `POST /api/ingest` | 同上（CLI が `rururu auth login` 済みであること。失敗時は送らない） |
 
 ### 作っていないもの
 
@@ -51,7 +52,7 @@ test/           node --test（D1 は node:sqlite のシム）
 | --- | --- | --- |
 | GET | `/api/materials?date=YYYY-MM-DD` | → `{ date, groups: [{ source, label, count, items: [{ id, source, external_id, occurred_at, date, title, url, detail, collected_at }] }], status: [{ source, label, status, count, reason, run_at, trigger }] }`。`groups` は出どころ順、中は時刻順（時刻の無いものは後ろ）。`status` は出どころごとのその日の最後の集め。日付が不正なら 400 `bad_date` |
 | POST | `/api/collect` | `{ date? }`（またはクエリ `?date=`。省略は JST の今日）→ `{ date, run_at, trigger: "manual", results: [{ source, label, date, status, count, reason }] }`。Mac から送るもの（vault-log・ambient）は次の送り出しを待つ |
-| POST | `/api/ingest` | `{ items: [{ source, external_id, date, occurred_at?, title, url?, detail? }], replace?: [{ source, date }] }` → `{ accepted, replaced }`。`source` は `vault-log`／`ambient` だけ（cron の出どころは上書きさせない）。`replace` に挙げた (source, date) は送ったものがその日の全部として古い行を消す（0 件なら空にする）。1件でも不正なら何も入れず 400（`bad_source`・`bad_date`・`bad_occurred_at`（オフセットの無い日時は不可）・`bad_title`・`bad_url`・`bad_detail`・`detail_too_large`（64KB）・`too_many_items`（500 件）…） |
+| POST | `/api/ingest` | `{ items: [{ source, external_id, date, occurred_at?, title, url?, detail? }], replace?: [{ source, date }] }` → `{ accepted, replaced }`。`source` は `vault-log`／`ambient`／`rururu-paw` だけ（cron の出どころは上書きさせない）。`replace` に挙げた (source, date) は送ったものがその日の全部として古い行を消す（0 件なら空にする）。1件でも不正なら何も入れず 400（`bad_source`・`bad_date`・`bad_occurred_at`（オフセットの無い日時は不可）・`bad_title`・`bad_url`・`bad_detail`・`detail_too_large`（64KB）・`too_many_items`（500 件）…） |
 
 ## secret と vars
 
@@ -88,7 +89,7 @@ test/           node --test（D1 は node:sqlite のシム）
 
 ⚠️ 港から便り・NoBu・からだ帳へは、同じゾーンの Custom Domain を Worker の `fetch` で呼ぶ。Access の前を通るので、サービストークンが各 Access アプリのポリシーに入っていないと 302/403 で `error` になる（理由に出る）。
 
-## Mac 側（vault の log と Ambient Context の要約を送る）
+## Mac 側（vault の log・Ambient Context の要約・rururu の足あとを送る）
 
 ```sh
 node scripts/send-to-minato.mjs --dry-run        # 送らずに、今日送る見出しを表示
@@ -99,6 +100,7 @@ node scripts/send-to-minato.mjs --date 2026-11-23
 - トークンはキーチェーン `kakera-token` の `client-id`／`client-secret`（かけら帳と同じ）。値は表示しない
 - 送るたびに「その日の全部」として入れ替える（log から消した見出しは港からも消える）。log が読めなかったときは入れ替えない
 - Ambient Context の要約（`Summaries/YYYY-MM-DD.md`）が無い日は ambient を送らない（要約は Ambient Context の `summarise_day` で作られる）
+- rururu の足あとは `rururu` CLI（既定 `~/.local/bin/rururu`・`MINATO_RURURU` で差し替え）を1回だけ呼び、`pawprints list --scope to_me` の JST の日ごとに振り分ける。CLI が失敗（未ログイン・sandbox など）したときは rururu-paw を入れ替えない（港にある分を消さない）
 - 環境変数で差し替え: `MINATO_URL`・`MINATO_VAULT_LOG`・`MINATO_AMBIENT_DIR`・`MINATO_KEYCHAIN`
 
 launchd に入れる（毎時 10 分・ログは `~/Library/Logs/minato-send.log`）:

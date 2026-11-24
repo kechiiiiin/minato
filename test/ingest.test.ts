@@ -74,6 +74,21 @@ test("形の検査: 1件でも不正なら全部入れない", async () => {
   assert.equal(ok.status, 200);
 });
 
+test("rururu-paw も受ける（vault-log・ambient と同じ扱い）", async () => {
+  const s = setup();
+  const r = await s.call("POST", "/api/ingest", {
+    items: [item({ source: "rururu-paw", external_id: "pawprint:1", title: "hacktk が「色々作っていく」に足あと", occurred_at: "2026-11-23T09:58:25+09:00" })],
+    replace: [{ source: "rururu-paw", date: D }],
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.accepted, 1);
+  assert.deepEqual(r.json.replaced, [{ source: "rururu-paw", date: D }]);
+  const m = await s.call("GET", `/api/materials?date=${D}`);
+  const g = m.json.groups.find((x: any) => x.source === "rururu-paw");
+  assert.equal(g.label, "rururu の足あと");
+  assert.equal(g.items[0].external_id, "pawprint:1");
+});
+
 test("materials: 日付が不正なら 400・無い日は空", async () => {
   const s = setup();
   assert.equal((await s.call("GET", "/api/materials")).status, 400);

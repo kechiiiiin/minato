@@ -17,6 +17,7 @@ export const SOURCES: Source[] = [tayori, nobu, health, hevy, weather];
 export const INGEST_SOURCES: Record<string, string> = {
   "vault-log": "ヘスティアとのやりとり（vault の log）",
   ambient: "Mac でやったこと（Ambient Context）",
+  "rururu-paw": "rururu の足あと",
 };
 
 /** 見出し（かけら帳に出す名前） */

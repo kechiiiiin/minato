@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildPayload, datesToSend, parseVaultLog } from "../scripts/send-to-minato.mjs";
+import { buildPayload, datesToSend, parsePawprints, parseVaultLog } from "../scripts/send-to-minato.mjs";
 
 const LOG = `---
 type: meta
@@ -61,4 +61,65 @@ test("要約があれば ambient も送り、無ければ送らず入れ替え�
 test("送る日: JST 0〜2時台は前日も", () => {
   assert.deepEqual(datesToSend(new Date("2026-11-23T15:10:00Z")), ["2026-11-23", "2026-11-24"]);
   assert.deepEqual(datesToSend(new Date("2026-11-23T18:10:00Z")), ["2026-11-24"]);
+});
+
+// ---- rururu の足あと
+
+const PAWPRINT = (o = {}) => ({
+  id: "180868",
+  memo: "",
+  createdAt: "2026-11-24T09:58:25+09:00",
+  user: { id: "8", name: "hacktk" },
+  item: { title: "色々作っていく", url: "https://www.kechiiiiin.com/diary/2026/11/23", imageUrl: "x", channel: { title: "まあ、そうかもしれない", imageUrl: "y" } },
+  ...o,
+});
+
+test("parsePawprints: JST の date に一致するものだけ、形を材料に直す", () => {
+  const items = parsePawprints([PAWPRINT()], "2026-11-24");
+  assert.equal(items.length, 1);
+  const i = items[0];
+  assert.equal(i.source, "rururu-paw");
+  assert.equal(i.external_id, "pawprint:180868");
+  assert.equal(i.date, "2026-11-24");
+  assert.equal(i.occurred_at, "2026-11-24T09:58:25+09:00");
+  assert.equal(i.title, "hacktk が「色々作っていく」に足あと");
+  assert.equal(i.url, "https://www.kechiiiiin.com/diary/2026/11/23");
+  assert.deepEqual(i.detail, {
+    user: { id: "8", name: "hacktk" },
+    memo: "",
+    item_title: "色々作っていく",
+    item_url: "https://www.kechiiiiin.com/diary/2026/11/23",
+    channel: "まあ、そうかもしれない",
+  });
+  // 違う日には振り分けない
+  assert.equal(parsePawprints([PAWPRINT()], "2026-11-23").length, 0);
+});
+
+test("parsePawprints: JST 0時またぎを正しい日に振り分ける", () => {
+  const late = PAWPRINT({ id: "1", createdAt: "2026-11-24T00:30:00+09:00" });
+  const early = PAWPRINT({ id: "2", createdAt: "2026-11-23T23:50:00+09:00" });
+  assert.deepEqual(parsePawprints([late, early], "2026-11-24").map((i) => i.external_id), ["pawprint:1"]);
+  assert.deepEqual(parsePawprints([late, early], "2026-11-23").map((i) => i.external_id), ["pawprint:2"]);
+});
+
+test("parsePawprints: 配列でない・形が崩れた要素は無視する", () => {
+  assert.deepEqual(parsePawprints(null, "2026-11-24"), []);
+  assert.deepEqual(parsePawprints(undefined, "2026-11-24"), []);
+  assert.deepEqual(parsePawprints([{ id: "x" }, { id: "y", createdAt: "not-a-date" }], "2026-11-24"), []);
+});
+
+test("buildPayload: rururu CLI が null（失敗）なら rururu-paw を入れ替えない。配列（0件でも）なら入れ替える", () => {
+  const dir = mkdtempSync(join(tmpdir(), "amb-"));
+  let p = buildPayload("2026-11-24", null, dir, null);
+  assert.deepEqual(p.replace, []);
+  assert.deepEqual(p.items, []);
+
+  p = buildPayload("2026-11-24", null, dir, []);
+  assert.deepEqual(p.replace, [{ source: "rururu-paw", date: "2026-11-24" }]);
+  assert.deepEqual(p.items, []);
+
+  p = buildPayload("2026-11-24", null, dir, [PAWPRINT()]);
+  assert.deepEqual(p.replace, [{ source: "rururu-paw", date: "2026-11-24" }]);
+  assert.equal(p.items.length, 1);
+  assert.equal(p.items[0].source, "rururu-paw");
 });

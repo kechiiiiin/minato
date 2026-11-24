@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Mac から港へ、その日の材料を送る（launchd で1時間ごと）。
-//   - vault-log … jinsei vault の hestia/log.md の見出し `## YYYY-MM-DD | 種別 | タイトル`（本文も少し）
-//   - ambient   … Ambient Context のその日の要約（~/ambient-context/Summaries/YYYY-MM-DD.md があるときだけ）
+//   - vault-log  … jinsei vault の hestia/log.md の見出し `## YYYY-MM-DD | 種別 | タイトル`（本文も少し）
+//   - ambient    … Ambient Context のその日の要約（~/ambient-context/Summaries/YYYY-MM-DD.md があるときだけ）
+//   - rururu-paw … rururu の「自分のチャンネルへの足あと」（rururu CLI の pawprints list --scope to_me）
 // 送る日は JST の今日。日付をまたいだ直後（JST 0〜2時台）は前日も送る（港の cron と同じ）。
 // 送るたびに「その日の全部」として入れ替える（replace）。log から消した見出しは港からも消える。
+// rururu CLI が失敗したとき（未ログイン・sandbox など）は rururu-paw を入れ替えない（港の分を消さない）。
 //
 // トークンは Mac のキーチェーン（サービス名 kakera-token・アカウント client-id / client-secret。かけら帳と同じ）。
 // 値は表示しない。
@@ -19,6 +21,7 @@
 //   MINATO_VAULT_LOG   既定 ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/jinsei/hestia/log.md
 //   MINATO_AMBIENT_DIR 既定 ~/ambient-context
 //   MINATO_KEYCHAIN    既定 kakera-token
+//   MINATO_RURURU      既定 ~/.local/bin/rururu（rururu CLI の実行ファイル）
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -32,6 +35,7 @@ const URL_BASE = (process.env.MINATO_URL ?? "https://minato.kechiiiiin.com").rep
 const VAULT_LOG = process.env.MINATO_VAULT_LOG ?? join(HOME, "Library/Mobile Documents/iCloud~md~obsidian/Documents/jinsei/hestia/log.md");
 const AMBIENT_DIR = process.env.MINATO_AMBIENT_DIR ?? join(HOME, "ambient-context");
 const KEYCHAIN = process.env.MINATO_KEYCHAIN ?? "kakera-token";
+const RURURU_BIN = process.env.MINATO_RURURU ?? join(HOME, ".local/bin/rururu");
 
 const BODY_MAX = 2000; // log の本文は先頭だけ
 const SUMMARY_MAX = 60_000; // 港の detail の上限（64KB）に収める
@@ -116,6 +120,60 @@ export function ambientSummary(dir, date) {
   };
 }
 
+// ---- rururu の足あと
+
+/**
+ * rururu CLI（pawprints list --scope to_me --json）を呼ぶ。失敗・JSON が配列でなければ null
+ * （null は「取れなかった」の意味。buildPayload はこのとき rururu-paw を入れ替えない）
+ */
+export function fetchPawprints(bin = RURURU_BIN) {
+  try {
+    const out = execFileSync(bin, ["pawprints", "list", "--scope", "to_me", "--limit", "50", "--json"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 20_000,
+    });
+    const parsed = JSON.parse(out);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * pawprints list の出力（配列）から、JST の date に作られたものだけを材料にする。
+ * list が配列でなければ空（呼び出し側は list===null のときは replace に入れないこと自体で判断する）
+ */
+export function parsePawprints(list, date) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const p of list) {
+    const createdAt = p?.createdAt;
+    if (typeof createdAt !== "string") continue;
+    const t = new Date(createdAt);
+    if (Number.isNaN(t.getTime())) continue;
+    if (jstParts(t).date !== date) continue;
+    const item = p.item ?? {};
+    const user = p.user ?? {};
+    out.push({
+      source: "rururu-paw",
+      external_id: `pawprint:${p.id}`,
+      date,
+      occurred_at: createdAt,
+      title: `${user.name ?? "誰か"} が「${item.title ?? ""}」に足あと`,
+      url: item.url ?? null,
+      detail: {
+        user,
+        memo: p.memo ?? "",
+        item_title: item.title ?? "",
+        item_url: item.url ?? null,
+        channel: item.channel?.title ?? null,
+      },
+    });
+  }
+  return out;
+}
+
 // ---- 送る
 
 function keychain(account) {
@@ -126,7 +184,11 @@ function keychain(account) {
   }
 }
 
-export function buildPayload(date, logText, ambientDir) {
+/**
+ * pawprints は rururu CLI を呼んだ結果（配列）そのまま。null なら「取れなかった」＝
+ * rururu-paw の items も replace も足さない（港にある分を消さない）。配列なら（0件でも）replace に入れる
+ */
+export function buildPayload(date, logText, ambientDir, pawprints) {
   const items = logText === null ? [] : parseVaultLog(logText, date);
   const replace = [];
   // log が読めなかったときは入れ替えない（港の分を空にしない）
@@ -135,6 +197,10 @@ export function buildPayload(date, logText, ambientDir) {
   if (summary) {
     items.push(summary);
     replace.push({ source: "ambient", date });
+  }
+  if (Array.isArray(pawprints)) {
+    items.push(...parsePawprints(pawprints, date));
+    replace.push({ source: "rururu-paw", date });
   }
   return { items, replace };
 }
@@ -156,6 +222,10 @@ async function main() {
     console.error(`vault の log が読めない（${e.code ?? e.name}）: vault-log は送らない`);
   }
 
+  // rururu CLI は1回だけ呼ぶ（日ごとに呼び直さない）。失敗なら null（rururu-paw は入れ替えない）
+  const pawprints = fetchPawprints();
+  if (pawprints === null) console.error("rururu の足あとが取れない（CLI 失敗・未ログインなど）: rururu-paw は送らない");
+
   const headers = { "Content-Type": "application/json" };
   if (!dry) {
     const id = keychain("client-id");
@@ -172,9 +242,10 @@ async function main() {
 
   let failed = false;
   for (const date of dates) {
-    const payload = buildPayload(date, logText, AMBIENT_DIR);
+    const payload = buildPayload(date, logText, AMBIENT_DIR, pawprints);
     const kinds = payload.items.reduce((a, i) => ({ ...a, [i.source]: (a[i.source] ?? 0) + 1 }), {});
     if (!payload.replace.some((r) => r.source === "ambient")) kinds.ambient = "要約なし（送らない）";
+    if (!payload.replace.some((r) => r.source === "rururu-paw")) kinds["rururu-paw"] = "取れなかった（送らない）";
     if (dry) {
       console.log(`${date}: ${JSON.stringify(kinds)}`);
       for (const i of payload.items) console.log(`  [${i.source}] ${i.title}`);
